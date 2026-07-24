@@ -1,77 +1,200 @@
 # KOSPI 200 Opening Volatility Prediction
 
-미국 시장 마감 이후 한국 시장 개장 전에 확정되는 글로벌 금융정보와 전일 국내시장 정보를 이용해 **KOSPI 200 개장 충격(Y1)**과 **09:00–09:30 실현변동성(Y2)**을 예측한 시계열 회귀 프로젝트입니다.
+> **야간 글로벌 금융시장 정보와 전일 국내시장 데이터를 활용해 KOSPI 200의 시초가 갭 충격과 개장 후 30분 변동성을 예측하고, SHAP으로 예측 근거를 해석한 시계열 머신러닝 프로젝트입니다.**
+
+[![Python](https://img.shields.io/badge/Python-3.x-blue)](https://www.python.org/) ![XGBoost](https://img.shields.io/badge/Model-XGBoost-orange) ![SHAP](https://img.shields.io/badge/XAI-TreeSHAP-green)
+
+## At a Glance
+
+| Item | Description |
+|---|---|
+| Project type | Financial time-series regression / Explainable AI |
+| Period | 2026.03.13 - 2026.05.10 |
+| Activity | DF regular project |
+| Observation unit | Trading day |
+| Raw analysis period | 2021-05-05 - 2026-03-31 |
+| Targets | Y1 opening-gap shock, Y2 09:00-09:30 realized volatility |
+| Final model | Tuned XGBoost |
+| Validation | Chronological 80:20 holdout + `TimeSeriesSplit` |
+| Core stack | Python, Pandas, scikit-learn, XGBoost, SHAP |
+
+## Problem
+
+The Korean stock market absorbs information generated after its previous close, including movements in the US equity market, volatility index, exchange rate, and interest rates. This information is often reflected intensively during the opening period of the next Korean trading day.
+
+This project asks:
+
+> **How much of the KOSPI 200 opening shock and early-session volatility can be predicted using information that is actually available before the market opens?**
+
+Rather than predicting only market direction, the project focuses on the **magnitude of opening risk** and explains which variables drive each prediction.
 
 ## Targets
 
-- **Y1 — Opening gap shock:** 당일 시가와 전일 종가 사이의 절대 갭
-- **Y2 — Opening realized volatility:** 개장 후 30분 구간의 로그수익률 기반 실현변동성
+- **Y1 - Opening-gap shock:** magnitude of the gap between the previous close and the current opening price
+- **Y2 - Opening realized volatility:** realized volatility during the 09:00-09:30 KST interval
 
-## Leakage Control
+## Dataset
 
-- 미국 D일 종가는 한국 D+1일 개장 정보로 날짜를 +1일 정렬
-- 모든 국내 변수는 lag 1–3 또는 과거 rolling statistics로 변환
-- 예측 기준시각을 **07:59 KST**로 두고 이후에 확정되는 값은 배제
-- 무작위 분할 대신 시간순 80:20 holdout과 `TimeSeriesSplit` 사용
+The integrated dataset contains **1,280 trading-day observations and 23 source columns** before additional lag and rolling features are generated.
 
-## Features
+| Category | Variables |
+|---|---|
+| Korean market | KOSPI 200 OHLC, returns, volume, intraday absolute return, volatility proxy |
+| US equity market | S&P 500 return, NASDAQ return |
+| Risk and macro | VIX change, USD/KRW return, US 10-year Treasury yield change |
+| Engineered history | Domestic lags 1-3, global lags 1-2, five-day rolling statistics |
 
-최종 모델에는 28개 변수를 사용했습니다.
+US market data for day `D` is shifted to the Korean trading day `D+1` to reflect when that information becomes available to the domestic market.
 
-- 당일 새벽 확정: S&P 500, NASDAQ, VIX, USD/KRW, 미국 10년물 금리 변화
-- 글로벌 변수 lag 1–2
-- KOSPI 수익률, 거래량, 변동성 proxy, 장중 절대수익률 lag 1–3
-- 과거 5일 이동평균·표준편차
+## Leakage Prevention
+
+Financial prediction is easily overstated when the model uses values unavailable at prediction time. The pipeline therefore applies a **07:59 KST cutoff rule**.
+
+- Only global variables confirmed before the Korean open are used at time `t`.
+- Same-day Korean market variables are never used directly.
+- Domestic market variables are shifted by 1-3 trading days.
+- Rolling features are calculated after `shift(1)` so the current day is excluded.
+- Data is split chronologically instead of randomly.
+- Hyperparameter tuning uses expanding-window `TimeSeriesSplit`.
+
+## Feature Engineering
+
+The final modeling matrix uses **28 predictors**:
+
+- Five overnight global variables
+- Eight lagged global-market variables
+- Twelve lagged domestic-market variables
+- Three five-day rolling statistics
+
+These features are designed to represent both immediate overnight shocks and volatility-clustering effects.
+
+## Modeling Pipeline
+
+```text
+Market data collection
+        ↓
+KST trading-date alignment
+        ↓
+Lag and rolling feature engineering
+        ↓
+07:59 cutoff / leakage audit
+        ↓
+Chronological train-test split
+        ↓
+OLS → Random Forest → XGBoost
+        ↓
+MAE / RMSE comparison
+        ↓
+Global and local TreeSHAP interpretation
+```
 
 ## Results
 
-### Y1: Opening gap shock
+### Y1 - Opening-gap shock
 
-| Model | MAE | RMSE |
+| Model | Test MAE | Test RMSE |
 |---|---:|---:|
 | OLS | 0.01803 | 0.02455 |
 | Random Forest | 0.01771 | 0.02516 |
-| XGBoost | **0.01714** | **0.02382** |
+| **XGBoost** | **0.01714** | **0.02382** |
 
-### Y2: 09:00–09:30 realized volatility
+### Y2 - Opening realized volatility
 
-| Model | MAE | RMSE |
+| Model | Test MAE | Test RMSE |
 |---|---:|---:|
 | OLS | 0.00492 | 0.00640 |
 | Random Forest | 0.00487 | 0.00624 |
-| XGBoost | **0.00481** | **0.00619** |
+| **XGBoost** | **0.00481** | **0.00619** |
 
-Y2의 naive baseline MAE 0.00607 대비 XGBoost는 약 **21%**의 오차 감소를 보였습니다.
+For Y2, the tuned XGBoost model reduced MAE by approximately **21%** relative to the documented naive baseline MAE of `0.00607`.
 
-## Interpretation
+## Model Interpretation
 
-TreeSHAP 분석에서:
+TreeSHAP was used at two levels.
 
-- Y1은 전일 KOSPI 수익률·거래량과 KOSPI 5일 평균의 영향이 컸습니다.
-- Y2는 전일 실현변동성과 5일 변동성 평균이 핵심이었습니다.
+- **Global explanation:** identifies variables that consistently influence predictions across the test period.
+- **Local explanation:** explains which features caused an extreme day's prediction to increase or decrease.
 
-극단 사례로 Y1은 2026-02-05(`y1_shock=0.0954`), Y2는 2025-09-15(`log_target_y2=0.0310`)를 로컬 SHAP으로 분석했습니다.
+Key findings from the submitted analysis:
+
+- Y1 was strongly affected by recent KOSPI returns, trading volume, and the five-day KOSPI return trend.
+- Y2 was strongly affected by lagged realized volatility and its recent five-day average.
+- Extreme cases were inspected separately rather than relying only on aggregate feature importance.
+
+## My Contribution
+
+- Collected and integrated KOSPI 200, KODEX 200, S&P 500, NASDAQ, VIX, USD/KRW, and US Treasury data.
+- Designed the `D → D+1` alignment logic between the US close and the next Korean open.
+- Built lag and rolling features reflecting recent return and volatility dynamics.
+- Designed the 07:59 cutoff rule and audited the pipeline for temporal leakage.
+- Implemented chronological validation and `TimeSeriesSplit` tuning.
+- Compared OLS, Random Forest, and XGBoost and interpreted the final model with TreeSHAP.
 
 ## Repository Structure
 
 ```text
-src/collect_data.py
-src/fetch_us10y.py
-src/modeling_predict_y1.py
-src/modeling_predict_y2.py
-data/README.md
-docs/presentation_summary.md
+.
+├── README.md
+├── requirements.txt
+├── data
+│   ├── README.md
+│   └── sample
+│       └── kospi200_model_variables_sample.csv
+├── docs
+│   └── presentation_summary.md
+└── src
+    ├── collect_data.py
+    ├── fetch_us10y.py
+    ├── modeling.py
+    ├── modeling_predict_y1.py
+    └── modeling_predict_y2.py
 ```
 
-## Run
+## How to Run
 
 ```bash
+git clone https://github.com/chanwoo0218/Kospi200-Opening-Volatility-Prediction.git
+cd Kospi200-Opening-Volatility-Prediction
 pip install -r requirements.txt
-python src/collect_data.py --output-dir data/processed
-export FRED_API_KEY="your_key"
-python src/fetch_us10y.py --output data/raw/us10y_treasury_5y.csv
-python src/modeling_predict_y1.py --data data/processed/Vol_Pred_Final_KST_Data_v2.csv
-python src/modeling_predict_y2.py --data data/processed/Vol_Pred_Final_KST_Data_v2.csv
 ```
 
-공개 저장소에는 API 키를 포함하지 않습니다. 첨부된 실험용 `test.py`에 있던 하드코딩 키는 제거하고 환경변수 방식으로 대체했습니다. 이 저장소는 연구·교육 목적이며 투자 조언이 아닙니다.
+Collect public market data:
+
+```bash
+python src/collect_data.py
+```
+
+The US Treasury collector requires a FRED API key. The real key is never stored in the repository.
+
+```bash
+export FRED_API_KEY="your_api_key"
+python src/fetch_us10y.py --output data/raw/us10y_treasury_5y.csv
+```
+
+Run the two target models after placing the processed dataset in the expected path:
+
+```bash
+python src/modeling_predict_y1.py
+python src/modeling_predict_y2.py
+```
+
+## Limitations
+
+- The model predicts statistical risk measures, not trading profitability.
+- Transaction costs, slippage, and executable investment rules were not evaluated.
+- Market regimes may change, so historical performance does not guarantee future performance.
+- Extreme-event performance remains less stable because such observations are rare.
+
+## Future Work
+
+- Walk-forward backtesting across multiple market regimes
+- Prediction intervals and uncertainty calibration
+- Regime-aware or volatility-state models
+- Real-time ingestion and pre-open inference pipeline
+- Evaluation using decision-oriented risk metrics
+
+## Portfolio
+
+A Korean-language project narrative, responsibilities, and learning reflections are available on the [Notion portfolio page](https://app.notion.com/p/81e82d8994c28379910601cc7c17706c).
+
+> This repository is for research and educational purposes and does not constitute investment advice.
