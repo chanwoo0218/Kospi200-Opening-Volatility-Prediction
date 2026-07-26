@@ -13,6 +13,13 @@
 | 최종 모델 | 튜닝된 XGBoost |
 | 검증 | 시간순 80:20 분할 + TimeSeriesSplit |
 
+## 발표자료
+
+[![PDF 발표자료](https://img.shields.io/badge/PDF-원본_발표자료_보기-EA4335?logo=adobeacrobatreader&logoColor=white)](docs/산업경영%20발표자료.pdf)
+
+- [원본 발표자료 PDF 열기](docs/산업경영%20발표자료.pdf)
+- [발표자료 핵심 내용 보기](docs/발표자료_요약.md)
+
 ## 핵심 설계
 
 - 미국 시장 D일 종가 정보를 한국 D+1일 개장에 맞춰 정렬
@@ -50,6 +57,7 @@
 │   ├── Vol_Pred_Final_KST_Data_v2.csv
 │   └── us10y_treasury_5y.csv
 ├── docs
+│   ├── 산업경영 발표자료.pdf
 │   └── 발표자료_요약.md
 └── src
     ├── collect_market_data.py
